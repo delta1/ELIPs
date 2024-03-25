@@ -1,0 +1,146 @@
+<pre>
+  ELIP: XXX
+  Layer: Applications
+  Title: Discounted fees for Confidential Transactions
+  Author: Byron Hambly <bhambly@blockstream.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-XXXX
+  Status: Draft
+  Type: Standards Track
+  Created: 2024-02-23
+  License: BSD-3-Clause
+</pre>
+
+==Introduction==
+
+===Abstract===
+
+This document proposes a method of reducing fees for Confidential Transactions.
+It specifies the calculation that wallets can use to determine the discounted fee, as well
+as changes necessary to the Elements node for relaying and mining these discounted transactions.
+
+===Copyright===
+
+This document is licensed under the 3-clause BSD license.
+
+===Motivation===
+
+In Elements, Confidential Transactions (CT) are approximately ten times larger than ordinary explicit transactions.
+Output amounts are replaced with Pedersen commitments, and they include an additional asset commitment and an ECDH ephemeral key.
+Outputs also have additional witness data: a Range Proof that the amount value is in a valid range, and a Surjection Proof
+that the output asset matches an input asset.
+
+Since they are larger, CT require an order of magnitude higher transaction fee than explicit transactions.
+This means there may be some incentive for a fee-minimizing actor to prefer explicit transactions over the privacy gains from CT.
+In order to incentivize CT, this ELIP proposes a policy change in Elements that would accept and relay CT at a discounted fee rate.
+With this discount, fees for CT are in the same order of magnitude as explicit transactions, and there is less incentive to use explicit transactions.
+
+==Design==
+
+===Overview===
+
+A new calculation for "discount virtual size" (discountvsize) is proposed.
+In explicit transactions, this is precisely the same as the transaction's vsize. In CT, for each confidential output in the transaction,
+the transaction weight is reduced before the virtual transaction size calculation.
+
+For wallets, this discount calculation is used during transaction creation for fee estimation, presuming that the connected Elements
+node has the respective setting to accept and relay such discounted CT.
+
+For nodes, this discount calculation is used during mempool
+acceptance validation and during peer messaging when determining which transactions to relay.
+
+===Drawbacks===
+
+By using the discountvsize for fee calculation, discounted CT have a lower ''real'' fee rate than the fee rate specified during
+transaction creation. Currently, the block assembler first selects transaction packages with the highest ancestor fee rates.
+This means discounted CT will only be selected after explicit transactions and undiscounted CT at the same nominal fee rates.
+The proposed solution is to change transaction ordering in the block assembler to fee rate according to the discounted virtual
+size. This means the block template no longer maximizes fees, which is considered an acceptable trade-off for prioritizing CT
+privacy with reduced fees.
+
+===Specification===
+
+====Wallet====
+
+Wallets can construct their transactions as normal, with a placeholder amount in a fee output. After filling in dummy signatures,
+the transaction weight should be calculated according to BIP-0141<ref>BIP-0141: https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#Transaction_size_calculations</ref>:
+
+<code>Weight = Base transaction size * 3 + Total transaction size</code>
+
+Where:
+
+<code>Base transaction size</code> is the size of the transaction serialized with the witness data stripped.
+
+<code>Total transaction size</code> is the transaction size in bytes serialized as described in BIP-0144<ref>BIP-0144: https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki#user-content-Serialization</ref>, including base data and witness data.
+
+To calculate the discount weight, for each output:
+
+* subtract the weight of the output witness if any, leaving 2 bytes that encode an empty witness
+* subtract 24 bytes if the amount is a commitment, the difference between commitment (33 bytes) and explicit amount (9 bytes)
+* subtract 32 bytes if the nonce is a commitment, the difference between commitment (33 bytes) and no nonce (1 byte)
+
+Then calculate discountvsize as <code>(discount weight + 3) / 4</code>, and set the fee output amount to <code>chosen fee rate * discountvsize</code>.
+
+Fee outputs can be ignored for the purposes of the discount calculation, since they have no witness or nonce, and the amount is explicit.
+
+=====Example calculation=====
+
+Transaction from LiquidV1<ref>https://blockstream.info/liquid/tx/221c8a8bb81d1e33f3b6556ec9eb10815469ff02fd4bb4dd5127442eaa16d988</ref>:
+
+This transaction has 2 confidential outputs and 1 fee output.
+
+Weight: 10536 WU
+
+* Subtract first output witness (4277) - 2: 10536 - 4275 = 6261
+* Subtract 24 for amount commitment: 6261 - 24 = 6237
+* Subtract 32 for nonce commitment: 6237 - 32 = 6205
+* Subtract second output witness (4277) - 2: 6205 - 4275 = 1930
+* Subtract 24 for amount commitment: 1930 - 24 = 1906
+* Subtract 32 for nonce commitment: 1906 - 32 = 1874
+
+Discount Weight: 1874 WU
+
+Discount Virtual Size: (1874 + 3) / 4 = 469 vB
+
+====Node====
+
+Nodes should add a new configuration option to define whether they accept and relay these discounted CT.
+In the reference implementation this is called "accept_discount_ct".
+When this configuration option is enabled, the node must use the discountvsize instead of vsize when calculating the
+fee rate for acceptance to its mempool, and for responding to inventory messages at its peers' given filter fee rates.
+
+In the block template assembler, ordering by ancestor fee rate should also be changed to use fee per discountvsize instead of fee per vsize.
+
+==Backwards Compatibility==
+
+Transactions at any fee rate, or even without a fee output, are consensus valid on LiquidV1 and can be included in blocks
+by default in Elements. At the current default minimum fee rate in Elements (0.1 sats/vb), discounted CT as specified above will
+not meet the minimum fee rate to be relayed by un-upgraded nodes. As long as the discounted CT can be relayed via upgraded
+nodes to a block miner (or signer) node, then it can be included in a block. This becomes easier as more nodes upgrade to
+accept discount CT.
+
+The following table outlines if the different transaction types will be relayed by un-upgraded nodes, and upgraded nodes configured
+to accept discount CT:
+
+{| class="wikitable" style="margin:auto"
+|-
+! Transaction Type !! Un-upgraded Node !! Upgraded node
+|-
+| Explicit || Yes || Yes
+|-
+| Normal CT || Yes || Yes
+|-
+| Discount CT || No || Yes
+|}
+
+==Reference Implementation==
+
+https://github.com/ElementsProject/elements/pull/1317
+
+==Alternate Implementation==
+
+https://github.com/ElementsProject/rust-elements/pull/204
+
+==References==
+
+<references />
