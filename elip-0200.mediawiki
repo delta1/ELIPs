@@ -1,5 +1,5 @@
 <pre>
-  ELIP: XXX
+  ELIP: 200
   Layer: Applications
   Title: Discounted fees for Confidential Transactions
   Author: Byron Hambly <bhambly@blockstream.com>
