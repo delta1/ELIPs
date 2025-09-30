@@ -111,7 +111,7 @@ After block height <code>H</code>:
 
 For a claim transaction with <code>P</code> peg-in outputs with total value below <code>X</code> BTC:
 
-* at a parent fee rate of <code>F</code><ref>F = max(parent fee rate F, 1 sat/vb)</ref> sat/vb, the claim transaction requires a subsidy of: <code>F * P * (164 + t * 72 + S + 3) / 4</code> sidechain satoshis
+* at a parent fee rate of <code>F</code><ref>F = max(parent fee rate, 1 sat/vb)</ref> sat/vb, the claim transaction requires a subsidy of: <code>F * P * (164 + t * 72 + S + 3) / 4</code> sidechain satoshis
 
 ----
 
